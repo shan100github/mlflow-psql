@@ -13,7 +13,7 @@ Repo for mlflow with psql deployment
 4. Deploy MLflow
 `kubectl -f apply manifest/mlflow.yaml`
 
-Here comes extra addition to setup authentication with mlflow
+Adding authentication for mlflow
 
 5. Integerate MLflow in kubeflow authentication
 `kubectl edit cm centraldashboard-config -n kubeflow`
