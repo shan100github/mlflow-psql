@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lh-pvc
+  namespace: mlflow
+  labels:
+    app: mlflow-app
+  annotations:
+    volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: longhorn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-app
+  namespace: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-app
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: mlflow-app
+    spec:
+      volumes:
+        - name: lh-pv
+          persistentVolumeClaim:
+            claimName: lh-pvc
+      containers:
+        - name: mlflow-app
+          image: mlflow:psql
+          command:
+            - mlflow
+            - server
+            - '--backend-store-uri=postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@mlflow-postgresql:5432/psql-db?sslmode=disable'
+            - '--artifacts-destination=<s3 URL> or mount a volume'
+            - '--serve-artifacts'
+            - '--host=0.0.0.0'
+            - '--port=5000'
+          ports:
+            - containerPort: 5000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: mlflow-artifact-store-secret
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: psql-secret
+                  key: postgresql-password
+          resources: {}
+          volumeMounts:
+            - name: lh-pv
+              mountPath: /mlflow
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      imagePullSecrets:
+        - name: aws-ecr-credentials
+      schedulerName: default-scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-svc
+  namespace: mlflow
+  labels:
+    app: mlflow-app
+status:
+  loadBalancer: {}
+spec:
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  selector:
+    app: mlflow-app
+  type: ClusterIP
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
